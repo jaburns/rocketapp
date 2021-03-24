@@ -3,17 +3,27 @@
 use mysql::prelude::Queryable;
 use mysql::Pool;
 use rocket::State;
+use rocket::{http::Cookie, response::Body};
+use rocket::{http::Cookies, Response};
+use std::io::Cursor;
 
 #[macro_use]
 extern crate rocket;
 
 #[get("/")]
-fn index(dbpool: State<Pool>) -> String {
-    let mut conn = dbpool.get_conn().unwrap();
+fn index(dbpool: State<Pool>, mut cookies: Cookies) -> String {
+    println!(
+        "Getting hello cookie: {}",
+        cookies.get_private("hello").unwrap()
+    );
 
+    let cookie = Cookie::build("hello", "shhhhh").finish();
+    cookies.add_private(cookie);
+
+    let mut conn = dbpool.get_conn().unwrap();
     let users = conn
         .query_map(
-            "SELECT id, username, hashedpass FROM users",
+            "SELECT id, username, passhash FROM users",
             |(id, username, hashedpass): (u32, String, String)| {
                 format!("{} {} {}", id, username, hashedpass)
             },
@@ -56,8 +66,8 @@ fn populate_debug_db() {
     let conn = &mut dbpool.get_conn().unwrap();
 
     conn.query_drop("CREATE TABLE users ( id INT NOT NULL, username VARCHAR(255) NOT NULL, passhash VARCHAR(255), PRIMARY KEY (ID) )").unwrap();
-    conn.query_drop("INSERT INTO users (id, username, passhash) VALUES (0, user0, pass0)")
+    conn.query_drop("INSERT INTO users (id, username, passhash) VALUES (0, 'user0', 'pass0')")
         .unwrap();
-    conn.query_drop("INSERT INTO users (id, username, passhash) VALUES (1, user1, pass1)")
+    conn.query_drop("INSERT INTO users (id, username, passhash) VALUES (1, 'user1', 'pass1')")
         .unwrap();
 }

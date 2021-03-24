@@ -1,0 +1,3 @@
+[development]
+port = 8080
+secret_key = "AcdlIdvPqY5XFZoz6pdhL8qzYX8NgO1np3Z7OhjBjro="
