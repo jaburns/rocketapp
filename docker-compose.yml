@@ -1,0 +1,22 @@
+rocketappData:
+  image: busybox
+  volumes:
+    - ./mysql-data:/var/lib/mysql
+
+rocketappMysql:
+  image: mysql:8.0
+  environment:
+    MYSQL_ROOT_PASSWORD: iZR3xjHNtAYVLqIU
+    MYSQL_USER: QsouqVMrOOI5XIhz
+    MYSQL_PASSWORD: PkrJ5mXdfxit7hGF
+  ports:
+    - "3306:3306"
+  volumes_from:
+    - "rocketappData"
+
+rocketappAdmin:
+  image: nazarpc/phpmyadmin
+  ports:
+    - "8090:80"
+  links:
+    - rocketappMysql:mysql

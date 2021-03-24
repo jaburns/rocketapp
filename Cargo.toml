@@ -1,0 +1,11 @@
+[package]
+name = "rocketapp"
+version = "0.1.0"
+authors = ["jaburns <j@jaburns.net>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rocket = "0.4.7"
+mysql = "20.1.0"
