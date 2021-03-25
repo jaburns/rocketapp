@@ -153,6 +153,10 @@ fn main() {
     rocket::ignite()
         .manage(dbpool)
         .mount(
+            "/static",
+            rocket_contrib::serve::StaticFiles::from("./static")
+        )
+        .mount(
             "/",
             routes![index, login, do_login, newuser, do_newuser, logout],
         )

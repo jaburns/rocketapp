@@ -1,14 +1,15 @@
 [package]
 name = "rocketapp"
 version = "0.1.0"
-authors = ["jaburns <j@jaburns.net>"]
+authors = ["jaburns"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rocket = "0.4.7"
-mysql = "20.1.0"
-hex = "0.4.3"
-rand = "0.8.3"
 argon2rs = "0.2.5"
+hex = "0.4.3"
+mysql = "20.1.0"
+rand = "0.8.3"
+rocket = "0.4.7"
+rocket_contrib = "0.4.7"
