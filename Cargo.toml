@@ -9,4 +9,6 @@ edition = "2018"
 [dependencies]
 rocket = "0.4.7"
 mysql = "20.1.0"
+hex = "0.4.3"
+rand = "0.8.3"
 argon2rs = "0.2.5"

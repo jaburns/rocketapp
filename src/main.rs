@@ -2,12 +2,29 @@
 
 use mysql::prelude::Queryable;
 use mysql::Pool;
-use rocket::http::Cookies;
 use rocket::request::Form;
+use rocket::{http::Cookie, http::Cookies, response::Redirect};
 use rocket::{response::content, State};
 
 #[macro_use]
 extern crate rocket;
+
+#[derive(FromForm)]
+struct LoginData {
+    username: String,
+    password: String,
+}
+
+#[get("/logout")]
+fn logout(mut cookies: Cookies) -> content::Html<&'static str> {
+    cookies.remove_private(Cookie::named("user_id"));
+
+    content::Html(
+        "
+    <h1>Logged out</h1>
+    ",
+    )
+}
 
 #[get("/login")]
 fn login() -> content::Html<&'static str> {
@@ -23,36 +40,83 @@ fn login() -> content::Html<&'static str> {
     )
 }
 
-#[derive(FromForm)]
-struct LoginData {
-    username: String,
-    password: String,
+fn gen_salt() -> String {
+    hex::encode(
+        (0..32)
+            .map(|_| rand::random::<u8>())
+            .collect::<Vec<u8>>()
+            .as_slice(),
+    )
 }
 
 #[post("/do_login", data = "<login>")]
-fn do_login(login: Form<LoginData>) -> content::Html<String> {
-    let (password, salt) = (login.password.as_str(), "saltysalty");
-    println!("argon2i_simple(\"{}\", \"{}\"):", password, salt);
+fn do_login(
+    login: Form<LoginData>,
+    dbpool: State<Pool>,
+    mut cookies: Cookies,
+) -> content::Html<String> {
+    let mut conn = dbpool.get_conn().unwrap();
 
-    let bytes = argon2rs::argon2i_simple(&password, &salt);
+    let users = conn
+        .exec::<(u32, String, String, String), _, _>(
+            "SELECT id, username, passhash, passsalt FROM users WHERE username = ?",
+            (&login.username,),
+        )
+        .unwrap();
 
-    let mut hash = String::new();
-    for byte in bytes.iter() {
-        hash += format!("{:02x}", byte).as_str();
+    if users.len() != 1 {
+        return content::Html(String::from("No user"));
     }
-    println!("Hashed: {}", hash);
 
-    let encoded = argon2rs::verifier::Encoded::default2i(
-        &login.password.clone().into_bytes(),
-        b"saltysalty",
-        b"",
-        b"",
+    let (id, username, passhash, passsalt) = users[0].clone();
+    let hash_bytes = argon2rs::argon2i_simple(&login.password.as_str(), &passsalt);
+
+    println!(
+        "{} {} {} {} {}",
+        id,
+        username,
+        passhash,
+        passsalt,
+        hex::encode(hash_bytes)
     );
-    let verified = encoded.verify(login.password.as_ref());
 
-    println!("Verified: {}", verified);
+    if hex::encode(hash_bytes) != passhash {
+        return content::Html(String::from("Bad pass"));
+    }
 
-    content::Html(format!("Submitted {} {}", login.username, login.password))
+    cookies.add_private(Cookie::new("user_id", id.to_string()));
+
+    content::Html(format!("Logged in as {}", username))
+}
+
+#[get("/newuser")]
+fn newuser() -> content::Html<&'static str> {
+    content::Html(
+        "
+    <h1>New User</h1>
+    <form method='POST' action='/do_newuser'>
+        <input type='text' name='username' />
+        <input type='text' name='password' />
+        <input type='submit' />
+    </form>
+    ",
+    )
+}
+
+#[post("/do_newuser", data = "<login>")]
+fn do_newuser(login: Form<LoginData>, dbpool: State<Pool>) -> Redirect {
+    let salt = gen_salt();
+    let hash_bytes = argon2rs::argon2i_simple(&login.password.as_str(), &salt);
+    let hash = hex::encode(&hash_bytes);
+    let mut conn = dbpool.get_conn().unwrap();
+
+    conn.exec_drop(
+        "INSERT INTO users (username, passhash, passsalt) VALUES (?, ?, ?)",
+        (&login.username, &hash, &salt),
+    )
+    .unwrap();
+
+    Redirect::to("/")
 }
 
 #[get("/")]
@@ -88,7 +152,10 @@ fn main() {
 
     rocket::ignite()
         .manage(dbpool)
-        .mount("/", routes![index, login, do_login])
+        .mount(
+            "/",
+            routes![index, login, do_login, newuser, do_newuser, logout],
+        )
         .launch();
 }
 
@@ -112,9 +179,15 @@ fn populate_debug_db() {
     let dbpool = Pool::new(url).unwrap();
     let conn = &mut dbpool.get_conn().unwrap();
 
-    conn.query_drop("CREATE TABLE users ( id INT NOT NULL, username VARCHAR(255) NOT NULL, passhash VARCHAR(255), PRIMARY KEY (ID) )").unwrap();
-    conn.query_drop("INSERT INTO users (id, username, passhash) VALUES (0, 'user0', 'pass0')")
-        .unwrap();
-    conn.query_drop("INSERT INTO users (id, username, passhash) VALUES (1, 'user1', 'pass1')")
-        .unwrap();
+    conn.query_drop(
+        "
+    CREATE TABLE users (
+        id INT NOT NULL AUTO_INCREMENT,
+        username VARCHAR(255) NOT NULL,
+        passhash CHAR(64),
+        passsalt CHAR(64),
+        PRIMARY KEY (ID)
+    )",
+    )
+    .unwrap();
 }
