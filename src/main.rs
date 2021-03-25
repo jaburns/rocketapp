@@ -2,6 +2,7 @@
 
 use mysql::prelude::Queryable;
 use mysql::Pool;
+use rand::{distributions::Alphanumeric, Rng};
 use rocket::request::Form;
 use rocket::{http::Cookie, http::Cookies, response::Redirect};
 use rocket::{response::content, State};
@@ -40,15 +41,6 @@ fn login() -> content::Html<&'static str> {
     )
 }
 
-fn gen_salt() -> String {
-    hex::encode(
-        (0..32)
-            .map(|_| rand::random::<u8>())
-            .collect::<Vec<u8>>()
-            .as_slice(),
-    )
-}
-
 #[post("/do_login", data = "<login>")]
 fn do_login(
     login: Form<LoginData>,
@@ -58,7 +50,7 @@ fn do_login(
     let mut conn = dbpool.get_conn().unwrap();
 
     let users = conn
-        .exec::<(u32, String, String, String), _, _>(
+        .exec::<(u32, String, Vec<u8>, String), _, _>(
             "SELECT id, username, passhash, passsalt FROM users WHERE username = ?",
             (&login.username,),
         )
@@ -71,16 +63,7 @@ fn do_login(
     let (id, username, passhash, passsalt) = users[0].clone();
     let hash_bytes = argon2rs::argon2i_simple(&login.password.as_str(), &passsalt);
 
-    println!(
-        "{} {} {} {} {}",
-        id,
-        username,
-        passhash,
-        passsalt,
-        hex::encode(hash_bytes)
-    );
-
-    if hex::encode(hash_bytes) != passhash {
+    if hash_bytes != passhash.as_slice() {
         return content::Html(String::from("Bad pass"));
     }
 
@@ -105,14 +88,17 @@ fn newuser() -> content::Html<&'static str> {
 
 #[post("/do_newuser", data = "<login>")]
 fn do_newuser(login: Form<LoginData>, dbpool: State<Pool>) -> Redirect {
-    let salt = gen_salt();
-    let hash_bytes = argon2rs::argon2i_simple(&login.password.as_str(), &salt);
-    let hash = hex::encode(&hash_bytes);
+    let salt: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect();
+    let hash_bytes = argon2rs::argon2i_simple(&login.password.as_str(), &salt.as_str());
     let mut conn = dbpool.get_conn().unwrap();
 
     conn.exec_drop(
         "INSERT INTO users (username, passhash, passsalt) VALUES (?, ?, ?)",
-        (&login.username, &hash, &salt),
+        (&login.username, &hash_bytes, &salt),
     )
     .unwrap();
 
@@ -127,9 +113,9 @@ fn index(dbpool: State<Pool>, mut cookies: Cookies) -> content::Html<String> {
         let mut conn = dbpool.get_conn().unwrap();
         let users = conn
             .query_map(
-                "SELECT id, username, passhash FROM users",
-                |(id, username, hashedpass): (u32, String, String)| {
-                    format!("{} {} {}", id, username, hashedpass)
+                "SELECT id, username, passsalt FROM users",
+                |(id, username, passsalt): (u32, String, String)| {
+                    format!("{} {} {}", id, username, passsalt)
                 },
             )
             .unwrap();
@@ -154,7 +140,7 @@ fn main() {
         .manage(dbpool)
         .mount(
             "/static",
-            rocket_contrib::serve::StaticFiles::from("./static")
+            rocket_contrib::serve::StaticFiles::from("./static"),
         )
         .mount(
             "/",
@@ -188,8 +174,8 @@ fn populate_debug_db() {
     CREATE TABLE users (
         id INT NOT NULL AUTO_INCREMENT,
         username VARCHAR(255) NOT NULL,
-        passhash CHAR(64),
-        passsalt CHAR(64),
+        passhash BINARY(32),
+        passsalt CHAR(32),
         PRIMARY KEY (ID)
     )",
     )
